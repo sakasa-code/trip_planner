@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI旅行助手</title>
+  <!-- Tailwind CSS CDN（需联网；页面图标均为内联 SVG，无需额外图标库） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563eb',
+            secondary: '#10b981',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .loading-spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="h-full bg-gradient-to-br from-blue-50 to-indigo-100">
+
+<div class="min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="bg-primary text-white shadow-lg">
+    <div class="max-w-6xl mx-auto px-4 py-6">
+      <h1 class="text-3xl font-bold flex items-center gap-3">
+        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 004 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        AI旅行助手
+      </h1>
+      <p class="mt-2 text-lg opacity-90">智能规划你的完美行程</p>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-6xl mx-auto w-full px-4 py-8">
+    <!-- 表单区域 -->
+    <div id="form-section" class="bg-white rounded-xl shadow-xl p-8 mb-12">
+      <h2 class="text-2xl font-bold mb-6 text-gray-800">规划你的旅行</h2>
+      <form id="trip-form" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">目的地城市 *</label>
+          <input type="text" name="city" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">开始日期 *</label>
+          <input type="date" name="start_date" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">结束日期 *</label>
+          <input type="date" name="end_date" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">交通方式 *</label>
+          <input type="text" name="transportation" required placeholder="例如：公共公交" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">住宿类型 *</label>
+          <input type="text" name="accommodation" required placeholder="例如：经济型酒店" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700 mb-2">偏好（多个用逗号分隔）</label>
+          <input type="text" name="preferences" placeholder="例如：历史文化,美食" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700 mb-2">额外要求</label>
+          <textarea name="free_text_input" rows="3" placeholder="例如：多安排博物馆，避免拥挤景点" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary"></textarea>
+        </div>
+        <div class="md:col-span-2">
+          <button type="submit" class="w-full bg-primary hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-lg transition flex items-center justify-center gap-3 text-lg">
+            <svg class="w-6 h-6 loading-spinner hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity="0.3"/><path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor"/></svg>
+            <span>生成行程计划</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 结果区域 -->
+    <div id="result-section" class="hidden">
+      <div class="bg-white rounded-xl shadow-xl p-8">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-3xl font-bold text-gray-800" id="plan-title"></h2>
+          <button onclick="document.getElementById('result-section').classList.add('hidden'); document.getElementById('form-section').classList.remove('hidden');" class="text-primary hover:underline">重新规划</button>
+        </div>
+
+        <!-- 总体信息 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div class="bg-blue-50 rounded-lg p-6">
+            <p class="text-sm text-gray-600">旅行日期</p>
+            <p class="text-xl font-bold" id="plan-dates"></p>
+          </div>
+          <div class="bg-green-50 rounded-lg p-6">
+            <p class="text-sm text-gray-600">总体建议</p>
+            <p class="text-lg font-semibold" id="plan-suggestions"></p>
+          </div>
+          <div class="bg-yellow-50 rounded-lg p-6">
+            <p class="text-sm text-gray-600">预估总预算</p>
+            <p class="text-2xl font-bold text-yellow-600" id="plan-budget"></p>
+          </div>
+        </div>
+
+        <!-- 天气信息 -->
+        <div class="mb-8">
+          <h3 class="text-xl font-bold mb-4">天气预报</h3>
+          <div id="weather-grid" class="grid grid-cols-1 md:grid-cols-4 gap-4"></div>
+        </div>
+
+        <!-- 每日行程 -->
+        <div>
+          <h3 class="text-xl font-bold mb-6">详细行程</h3>
+          <div id="days-accordion" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div id="error-alert" class="hidden fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-8 py-4 rounded-lg shadow-2xl z-50">
+      <p id="error-message"></p>
+    </div>
+  </main>
+</div>
+
+<script>
+  // 后端地址自适应：页面由后端(8000)提供时走同源；由 Live Server(5500) 提供时指向 8000
+  const API_BASE = window.location.port === '8000' ? '' : 'http://127.0.0.1:8000';
+
+  const form = document.getElementById('trip-form');
+  const spinner = document.querySelector('.loading-spinner');
+  const submitBtn = document.querySelector('button[type="submit"]');
+  const submitText = submitBtn.querySelector('span');
+
+  // LLM 返回的内容一律转义后再插入 HTML，防止 XSS
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function weatherIcon(text) {
+    const t = String(text || '');
+    if (/雨/.test(t)) return '🌧️';
+    if (/雪/.test(t)) return '❄️';
+    if (/多云|阴/.test(t)) return '⛅';
+    if (/晴/.test(t)) return '☀️';
+    return '🌤️';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    spinner.classList.remove('hidden');
+    submitBtn.disabled = true;
+    submitText.textContent = '规划中…（通常需1-3分钟）';
+
+    const formData = new FormData(form);
+    const startDate = new Date(formData.get('start_date') + 'T00:00:00');
+    const endDate = new Date(formData.get('end_date') + 'T00:00:00');
+
+    // 前端校验：日期有效性及先后顺序
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      showError('请选择有效的开始和结束日期');
+      resetButton();
+      return;
+    }
+    if (endDate < startDate) {
+      showError('结束日期不能早于开始日期');
+      resetButton();
+      return;
+    }
+
+    const preferences = (formData.get('preferences') || '').split(',').map(p => p.trim()).filter(p => p);
+    const data = {
+      city: formData.get('city'),
+      start_date: formData.get('start_date'),
+      end_date: formData.get('end_date'),
+      travel_days: Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1,
+      transportation: formData.get('transportation'),
+      accommodation: formData.get('accommodation'),
+      preferences: preferences,
+      free_text_input: formData.get('free_text_input') || ''
+    };
+
+    // 5 分钟超时保护：后端单次 LLM 调用限时 180 秒，这里给足余量，超时给出明确提示而不是一直转圈
+    const controller = new AbortController();
+    const requestTimer = setTimeout(() => controller.abort(), 300000);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/trip/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: controller.signal
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        // 422 等校验错误时 FastAPI 返回 {"detail": [...]}
+        const detail = result.detail;
+        const msg = Array.isArray(detail) && detail[0] ? detail[0].msg : (detail || '');
+        throw new Error(msg || `请求失败 (HTTP ${response.status})`);
+      }
+      if (!result.success) {
+        throw new Error(result.message || '规划失败');
+      }
+
+      renderPlan(result.data);
+      document.getElementById('form-section').classList.add('hidden');
+      document.getElementById('result-section').classList.remove('hidden');
+    } catch (err) {
+      const msg = err.name === 'AbortError'
+        ? '请求超时：后端处理超过 5 分钟仍未返回，请查看后端日志排查'
+        : (err.message || '网络错误，请检查后端是否运行');
+      showError(msg);
+    } finally {
+      clearTimeout(requestTimer);
+      resetButton();
+    }
+  });
+
+  function resetButton() {
+    spinner.classList.add('hidden');
+    submitBtn.disabled = false;
+    submitText.textContent = '生成行程计划';
+  }
+
+  function showError(msg) {
+    const alert = document.getElementById('error-alert');
+    document.getElementById('error-message').textContent = msg;
+    alert.classList.remove('hidden');
+    setTimeout(() => alert.classList.add('hidden'), 6000);
+  }
+
+  function renderPlan(plan) {
+    document.getElementById('plan-title').textContent = `${plan.city} ${plan.days.length}天旅行计划`;
+    document.getElementById('plan-dates').textContent = `${plan.start_date} ~ ${plan.end_date}`;
+    document.getElementById('plan-suggestions').textContent = plan.overall_suggestions || '无';
+    document.getElementById('plan-budget').textContent = plan.budget ? `¥${plan.budget.total}` : '未提供';
+
+    // 天气
+    const weatherGrid = document.getElementById('weather-grid');
+    weatherGrid.innerHTML = (plan.weather_info || []).map(w => `
+      <div class="bg-sky-50 rounded-lg p-4 text-center">
+        <p class="font-semibold">${escapeHtml(w.date)}</p>
+        <p class="text-2xl my-2">${weatherIcon(w.day_weather)}</p>
+        <p>${escapeHtml(w.day_weather)} ${escapeHtml(w.day_temp)}°C</p>
+        <p class="text-sm text-gray-600">夜 ${escapeHtml(w.night_weather)} ${escapeHtml(w.night_temp)}°C</p>
+      </div>
+    `).join('');
+
+    // 每日行程（手风琴式折叠）
+    const daysAccordion = document.getElementById('days-accordion');
+    daysAccordion.innerHTML = (plan.days || []).map((day, idx) => {
+      const dayNum = idx + 1;
+      const hotelBlock = day.hotel ? `
+        <div class="mt-3 bg-white p-4 rounded-lg">
+          <p class="font-medium">${escapeHtml(day.hotel.name)}</p>
+          <p>${escapeHtml(day.hotel.address)}</p>
+          <p>预估：¥${escapeHtml(day.hotel.estimated_cost)}</p>
+        </div>` : '';
+      const attractionsBlock = (day.attractions || []).map(a => `
+        <div class="bg-white p-4 rounded-lg shadow">
+          <p class="font-medium text-lg">${escapeHtml(a.name)}</p>
+          <p class="text-sm text-gray-600">${escapeHtml(a.address)}</p>
+          <p class="mt-2">${escapeHtml(a.description)}</p>
+          <p class="mt-2 text-sm">游览时间：${escapeHtml(a.visit_duration)}分钟 | 门票：¥${escapeHtml(a.ticket_price)}</p>
+        </div>
+      `).join('');
+      const mealsBlock = (day.meals || []).map(m => {
+        const typeName = m.type === 'breakfast' ? '早餐' : m.type === 'lunch' ? '午餐' : m.type === 'dinner' ? '晚餐' : (m.type || '餐');
+        return `
+          <div class="bg-white p-4 rounded-lg text-center">
+            <p class="font-medium">${escapeHtml(typeName)}</p>
+            <p class="mt-1">${escapeHtml(m.name)}</p>
+            <p class="text-sm text-gray-600">${escapeHtml(m.description)}</p>
+            <p class="mt-2 font-bold">¥${escapeHtml(m.estimated_cost)}</p>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="border border-gray-200 rounded-lg overflow-hidden">
+          <button type="button" class="w-full bg-primary text-white font-bold py-4 px-6 text-left flex justify-between items-center hover:bg-blue-700 transition">
+            <span>第 ${dayNum} 天（${escapeHtml(day.date)}） - ${escapeHtml(day.description)}</span>
+            <svg class="w-6 h-6 transform transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div class="day-content hidden bg-gray-50 p-6 space-y-6">
+            <div>
+              <h4 class="font-semibold text-lg mb-2">交通 & 住宿</h4>
+              <p>交通：${escapeHtml(day.transportation)}</p>
+              <p>住宿：${escapeHtml(day.accommodation)}</p>
+              ${hotelBlock}
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-lg mb-3">景点</h4>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${attractionsBlock}</div>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-lg mb-3">餐饮</h4>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">${mealsBlock}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // 添加折叠功能
+    document.querySelectorAll('#days-accordion button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const content = btn.nextElementSibling;
+        const icon = btn.querySelector('svg');
+        content.classList.toggle('hidden');
+        icon.classList.toggle('rotate-180');
+      });
+    });
+  }
+</script>
+
+</body>
+</html>
