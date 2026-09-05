@@ -10,7 +10,9 @@ __all__ = [
     "ZHIPUAI_API_KEY", "ZHIPUAI_API_URL",
     "QIANFAN_ACCESS_KEY", "QIANFAN_SECRET_KEY",
     "LANGSMITH_API_KEY", "AMAP_API_KEY",
+    "AMAP_JS_KEY", "AMAP_JS_SECURITY_CODE",
     "UNSPLASH_ACCESS_KEY", "UNSPLASH_SECRET_KEY",
+    "REDIS_URL",
 ]
 
 DEEPSEEK_API_KEY=os.getenv("DEEPSEEK_API_KEY")
@@ -29,6 +31,14 @@ LANGSMITH_API_KEY=os.getenv("LANGSMITH_API_KEY")
 
 AMAP_API_KEY=os.getenv("AMAP_API_KEY")
 
+# 高德 JS API（Web端 Key）：与 REST 的 AMAP_API_KEY 是两种 Key 类型，留空则前端隐藏地图
+AMAP_JS_KEY=os.getenv("AMAP_JS_KEY")
+AMAP_JS_SECURITY_CODE=os.getenv("AMAP_JS_SECURITY_CODE")
+
 UNSPLASH_ACCESS_KEY=os.getenv("UNSPLASH_ACCESS_KEY")
 UNSPLASH_SECRET_KEY=os.getenv("UNSPLASH_SECRET_KEY")
+
+# Redis 缓存连接串，格式：redis://host:port/0
+# 留空则 CacheService 自动降级为进程内 LRU，功能不减但重启丢缓存
+REDIS_URL=os.getenv("REDIS_URL")
 

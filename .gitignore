@@ -14,8 +14,19 @@ build/
 # IDE / 编辑器
 .idea/
 .vscode/
+.trae/
 *.swp
+
+# Redis 二进制包
+redis-win/
 
 # 日志与临时文件
 *.log
 .DS_Store
+
+# PPT 演示文件（不上传 GitHub）
+*.ppt
+*.pptx
+
+# 数据库文件
+trip_planner/trip_planner.db

@@ -11,7 +11,7 @@ class TripRequest(BaseModel):
     travel_days: int = Field(..., description="旅行天数", ge=1, le=30, example=3)
     transportation: str = Field(..., description="交通方式", example="公共公交")
     accommodation: str = Field(..., description="住宿类型", example="经济型酒店")
-    preferences: List[str] = Field(default=[], description="用户偏好", example=["历史文化", "美食"])
+    preferences: List[str] = Field(default_factory=list, description="用户偏好", example=["历史文化", "美食"])
     free_text_input: Optional[str] = Field(default="", description="额外要求", example="希望多安排一些博物馆")
 
     model_config = ConfigDict(
@@ -36,6 +36,15 @@ class TripRequest(BaseModel):
             datetime.strptime(v, "%Y-%m-%d")
         except ValueError:
             raise ValueError(f"日期格式必须为 YYYY-MM-DD，当前值: {v!r}")
+        return v
+
+    @field_validator("city")
+    @classmethod
+    def validate_city(cls, v: str) -> str:
+        """城市名至少含一个有效字符；拦截编码损坏产生的「??」等纯符号。"""
+        v = (v or "").strip()
+        if not v or not any(ch.isalnum() for ch in v):
+            raise ValueError(f"城市名无效，请填写真实城市：{v!r}")
         return v
 
     @model_validator(mode="after")
@@ -98,8 +107,8 @@ class DayPlan(BaseModel):
     transportation: str = Field(..., description="交通方式")
     accommodation: str = Field(..., description="住宿类型")
     hotel: Optional[Hotel] = Field(default=None, description="推荐酒店")
-    meals: List[Meal] = Field(default=[], description="餐饮列表")
-    attractions: List[Attraction] = Field(default=[], description="景点列表")
+    meals: List[Meal] = Field(default_factory=list, description="餐饮列表")
+    attractions: List[Attraction] = Field(default_factory=list, description="景点列表")
 
 
 class WeatherInfo(BaseModel):
@@ -139,7 +148,7 @@ class TripPlan(BaseModel):
     start_date: str = Field(..., description="开始日期")
     end_date: str = Field(..., description="结束日期")
     days: List[DayPlan] = Field(..., description="每日行程")
-    weather_info: List[WeatherInfo] = Field(default=[], description="天气信息")
+    weather_info: List[WeatherInfo] = Field(default_factory=list, description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
 

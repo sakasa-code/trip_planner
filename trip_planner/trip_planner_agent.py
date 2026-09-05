@@ -58,6 +58,20 @@ RETRY_INSTRUCTION = (
 )
 
 
+def _normalize_city(city: str) -> str:
+    """城市名归一：去首尾空白、去「市」后缀，用于比较模型输出与请求是否一致。"""
+    return (city or "").strip().rstrip("市")
+
+
+class _CityMismatch(Exception):
+    """规划模型输出的城市与用户请求不一致（幻觉城市）。"""
+
+    def __init__(self, output: str, requested: str):
+        self.output = output
+        self.requested = requested
+        super().__init__(f"模型输出城市 {output!r} 与请求城市 {requested!r} 不一致")
+
+
 class MultiAgentTripPlanner:
     """多智能体旅行规划系统"""
 
@@ -142,39 +156,36 @@ class MultiAgentTripPlanner:
               f"POI: {[t.name for t in poi_tools]}")
         return weather_agent, attraction_agent, hotel_agent
 
-    async def plan_trip(self, request: TripRequest) -> TripPlan:
-        """
-        使用多智能体进行旅行规划
+    async def plan_trip_stream(self, request: TripRequest):
+        """流式旅行规划：异步生成器，逐步 yield 进度事件，最终 yield 结果或错误。
 
-        Args:
-            request: 旅行请求
+        事件格式（dict）：
+          {"type": "step", "step": "<step_id>", "status": "start"|"done", "message": "..."}
+          {"type": "result", "data": <TripPlan 的 dict>}
+          {"type": "error", "error_code": "<code>", "message": "..."}
 
-        Returns:
-            旅行计划
+        step_id: attractions | weather | hotels | planning
+        error_code: amap_error | llm_parse_error | network_error | unknown
         """
+        attraction_text = weather_text = hotel_text = ""
+        current_step = "init"
         try:
-            print(f"\n{'=' * 60}")
-            print(f"🚀 开始多智能体协作规划旅行...")
-            print(f"目的地: {request.city}")
-            print(f"日期: {request.start_date} 至 {request.end_date}")
-            print(f"天数: {request.travel_days}天")
-            print(f"偏好: {', '.join(request.preferences) if request.preferences else '无'}")
-            print(f"{'=' * 60}\n")
+            yield {"type": "step", "step": "init", "status": "done",
+                   "message": f"正在为「{request.city}」规划 {request.travel_days} 天行程"}
 
-            # 每次请求建立独立 MCP 会话：请求内所有工具调用复用同一条连接，
-            # 请求结束自动关闭；下次请求重新建立，天然自愈，不依赖远端连接存活。
-            # 即使会话被远端断开，也只影响当前这一次请求（报错后下次请求自动恢复）。
-            print("🔌 建立本次请求的 MCP 会话...")
+            # 每次请求建立独立 MCP 会话
+            current_step = "attractions"
+            yield {"type": "step", "step": "attractions", "status": "start", "message": "正在检索景点…"}
             async with self.amap_tool.session("amap-amap-sse") as session:
                 weather_agent, attraction_agent, hotel_agent = await self._build_agents(session)
 
-                print("📍 步骤1: 搜索景点...")
                 attraction_query = self._build_attraction_query(request)
                 attraction_text = await self._run_agent_with_retry(
                     attraction_agent, attraction_query, "景点搜索")
-                print(f"景点搜索结果: {attraction_text[:200]}...\n")
+                yield {"type": "step", "step": "attractions", "status": "done", "message": "景点检索完成"}
 
-                print("🌤️  步骤2: 查询天气...")
+                current_step = "weather"
+                yield {"type": "step", "step": "weather", "status": "start", "message": "正在查询天气…"}
                 weather_query = {
                     "messages": [
                         _user_message(
@@ -185,9 +196,10 @@ class MultiAgentTripPlanner:
                 }
                 weather_text = await self._run_agent_with_retry(
                     weather_agent, weather_query, "天气查询")
-                print(f"天气查询结果: {weather_text[:200]}...\n")
+                yield {"type": "step", "step": "weather", "status": "done", "message": "天气查询完成"}
 
-                print("🏨 步骤3: 搜索酒店...")
+                current_step = "hotels"
+                yield {"type": "step", "step": "hotels", "status": "start", "message": "正在搜索酒店…"}
                 hotel_query = {
                     "messages": [
                         _user_message(
@@ -198,9 +210,10 @@ class MultiAgentTripPlanner:
                 }
                 hotel_text = await self._run_agent_with_retry(
                     hotel_agent, hotel_query, "酒店搜索")
-                print(f"酒店搜索结果: {hotel_text[:200]}...\n")
+                yield {"type": "step", "step": "hotels", "status": "done", "message": "酒店搜索完成"}
 
-            print("📋 步骤4: 生成行程计划...")
+            current_step = "planning"
+            yield {"type": "step", "step": "planning", "status": "start", "message": "正在生成行程计划…"}
             planner_query = self._build_planner_query(request, attraction_text, weather_text, hotel_text)
             planner_messages = [
                 ("system", PLANNER_AGENT_PROMPT),
@@ -211,16 +224,25 @@ class MultiAgentTripPlanner:
             for attempt in range(3):
                 planner_response = await self.planner_llm.ainvoke(planner_messages)
                 planner_text = self._extract_text(planner_response)
-                print(f"行程规划结果: {planner_text[:800]}...\n")
-
                 try:
                     trip_plan = self._parse_response(planner_text, request)
+                    # 关键防线：模型偶尔会「幻觉」出别的城市（日志实证：广州被输出成北京），
+                    # 此处校验输出城市与请求一致，不一致则追加强硬修正指令重试。
+                    if _normalize_city(trip_plan.city) != _normalize_city(request.city):
+                        raise _CityMismatch(trip_plan.city, request.city)
                     break
-                except Exception as e:
-                    print(f"⚠️ 规划结果解析失败（第{attempt + 1}次）: {e}")
+                except _CityMismatch as e:
                     if attempt == 2:
                         raise
-                    # 追加纠正指令后重试：要求只输出一个完整的 JSON 对象
+                    planner_messages = planner_messages + [
+                        ("user",
+                         f"\n\n**重要修正：** 你输出的城市是「{e.output}」，但用户要求的是「{e.requested}」。"
+                         "请把 JSON 中的 city 字段改为用户要求的城市，其余内容可保留，"
+                         "重新输出完整 JSON，不要任何解释或代码块标记。")
+                    ]
+                except Exception as e:
+                    if attempt == 2:
+                        raise
                     planner_messages = planner_messages + [
                         ("user",
                          "\n\n**重要：** 你上一次的输出为空或不是合法 JSON，无法解析。"
@@ -229,18 +251,36 @@ class MultiAgentTripPlanner:
                     ]
 
             assert trip_plan is not None
-
-            print(f"{'=' * 60}")
-            print(f"✅ 旅行计划生成完成!")
-            print(f"{'=' * 60}\n")
-
-            return trip_plan
+            yield {"type": "step", "step": "planning", "status": "done", "message": "行程生成完成"}
+            yield {"type": "result", "data": trip_plan.model_dump()}
 
         except Exception as e:
-            print(f"❌ 旅行规划失败: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise
+            error_code = self._classify_error(e, current_step)
+            yield {"type": "error", "error_code": error_code, "message": str(e)[:300]}
+
+    async def plan_trip(self, request: TripRequest) -> TripPlan:
+        """兼容旧调用：消费 plan_trip_stream 并返回 TripPlan，出错时抛出。"""
+        result = None
+        async for event in self.plan_trip_stream(request):
+            if event["type"] == "result":
+                result = event["data"]
+            elif event["type"] == "error":
+                raise RuntimeError(f"[{event['error_code']}] {event['message']}")
+        if result is None:
+            raise RuntimeError("[unknown] 规划未返回结果")
+        return TripPlan(**result)
+
+    @staticmethod
+    def _classify_error(exc: Exception, step: str) -> str:
+        """根据异常类型与发生步骤归类错误码，供前端做定向重试。"""
+        msg = str(exc).lower()
+        if step in ("attractions", "weather", "hotels"):
+            return "amap_error"
+        if step == "planning":
+            return "llm_parse_error"
+        if any(k in msg for k in ("timeout", "timed out", "connection", "network", "refused")):
+            return "network_error"
+        return "unknown"
 
     async def _run_agent_with_retry(self, agent, query: dict, step_name: str) -> str:
         """调用 Agent 并校验输出：若模型反问用户或输出为空，追加强硬指令重试一次。

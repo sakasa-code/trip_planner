@@ -11,3 +11,8 @@ httpx==0.28.1
 httpx-sse==0.4.3
 sse-starlette==3.4.8
 openai==3.6.0
+
+# 缓存层：redis-py 是真实 Redis 的客户端；fakeredis 是零配置自动兜底
+# 部署真实 Redis 时保留 redis==；开发环境 fakeredis 随服务器启动即就绪
+redis==4.6.1
+fakeredis==2.37.1
