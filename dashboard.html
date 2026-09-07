@@ -1,0 +1,1078 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>行记 · 企业控制台</title>
+<style>
+  /* ========== 主题变量 ========== */
+  :root {
+    --bg: #1c1917;
+    --bg-elev: #26221e;
+    --bg-card: #2d2824;
+    --bg-hover: #3a342e;
+    --border: #443c36;
+    --ink: #f5f5f4;
+    --ink-dim: #d6d3d1;
+    --muted: #a8a29e;
+    --amber: #d97706;
+    --amber-hover: #f59e0b;
+    --amber-dim: #92400e;
+    --success: #10b981;
+    --danger: #ef4444;
+    --warn: #f59e0b;
+    --sidebar-w: 56px;
+    --topbar-h: 52px;
+    --radius: 6px;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  /* 文字选区与键盘焦点：延续琥珀品牌色，替代系统默认蓝 */
+  ::selection { background: rgba(217,119,6,.28); color: var(--ink); }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  /* 启动加载态：居中细环旋转 */
+  .boot-screen {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100vh; color: var(--muted); font-size: 13px; gap: 12px;
+  }
+  .boot-spinner {
+    width: 22px; height: 22px; border: 2px solid var(--border);
+    border-top-color: var(--amber); border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select, textarea { font-family: inherit; font-size: 14px; color: var(--ink); }
+  a { color: inherit; text-decoration: none; }
+
+  /* ========== 布局 ========== */
+  .app {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    height: 100vh;
+  }
+
+  /* 侧栏 */
+  .sidebar {
+    background: #14110f;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 14px;
+    gap: 4px;
+  }
+  .sidebar .logo {
+    width: 34px; height: 34px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, var(--amber), var(--amber-dim));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #1c1917;
+    font-size: 14px; margin-bottom: 14px;
+  }
+  .nav-item {
+    width: 44px; height: 44px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; border-radius: var(--radius);
+    color: var(--muted);
+    cursor: pointer; position: relative;
+    transition: background 150ms ease-out;
+  }
+  .nav-item:hover { background: var(--bg-elev); color: var(--ink-dim); }
+  .nav-item.active {
+    background: var(--bg-elev);
+    color: var(--amber);
+  }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px;
+    width: 3px; background: var(--amber); border-radius: 2px;
+  }
+  .nav-item .icon { font-size: 18px; line-height: 1; }
+  .nav-item .label { font-size: 10px; letter-spacing: 0; }
+
+  /* 主区 */
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+  .topbar {
+    height: var(--topbar-h);
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .topbar .crumb { display: flex; align-items: center; gap: 10px; }
+  .topbar .crumb .ent-name { font-weight: 600; color: var(--amber); font-size: 15px; }
+  .topbar .crumb .page-title { color: var(--muted); font-size: 13px; }
+  .topbar .crumb .sep { color: var(--border); }
+  .topbar .right { display: flex; align-items: center; gap: 14px; font-size: 13px; }
+  .topbar .right .user { color: var(--ink-dim); }
+  .topbar .right .logout { color: var(--muted); }
+  .topbar .right .logout:hover { color: var(--danger); }
+  .topbar .right .goto-main { color: var(--amber); opacity: .7; }
+  .topbar .right .goto-main:hover { opacity: 1; }
+
+  .content {
+    flex: 1; overflow-y: auto;
+    padding: 24px 28px 40px;
+  }
+
+  /* ========== 通用组件 ========== */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+  }
+  .card + .card { margin-top: 16px; }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+
+  .btn {
+    padding: 7px 14px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: all 150ms ease-out; white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--amber); color: #1c1917;
+  }
+  .btn-primary:hover { background: var(--amber-hover); }
+  .btn-ghost {
+    background: transparent; color: var(--ink-dim);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--border); }
+  .btn-danger:hover { border-color: var(--danger); background: rgba(239,68,68,.1); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 500;
+  }
+  .badge-on { background: rgba(16,185,129,.15); color: var(--success); }
+  .badge-off { background: rgba(168,162,158,.15); color: var(--muted); }
+  .badge-bid { background: rgba(217,119,6,.15); color: var(--amber); }
+
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+
+  /* ========== Overview ========== */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    position: relative; overflow: hidden;
+  }
+  .kpi::after {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--amber), transparent);
+    opacity: .6;
+  }
+  .kpi-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .kpi-value { font-size: 26px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .kpi.amber .kpi-value { color: var(--amber); }
+  .kpi.success .kpi-value { color: var(--success); }
+
+  /* 迷你折线 */
+  .trend-wrap { display: flex; gap: 20px; align-items: flex-start; }
+  .trend-chart { flex: 1; }
+  .trend-chart svg { width: 100%; height: 180px; }
+  .trend-legend { display: flex; flex-direction: column; gap: 8px; min-width: 120px; }
+  .trend-legend .lg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-dim); }
+  .trend-legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .trend-legend .val { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /* ========== 产品列表 ========== */
+  .toolbar {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .toolbar input, .toolbar select {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 12px; color: var(--ink);
+    outline: none; transition: border-color 150ms ease-out;
+  }
+  .toolbar input:focus, .toolbar select:focus { border-color: var(--amber); }
+  .toolbar input { width: 200px; }
+
+  .table-wrap { overflow-x: auto; max-height: calc(100vh - 380px); }
+  table.product-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.product-table th, table.product-table td {
+    padding: 10px 12px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  table.product-table th {
+    color: var(--muted); font-weight: 500; font-size: 12px;
+    background: var(--bg-elev); position: sticky; top: 0;
+  }
+  table.product-table td { color: var(--ink-dim); }
+  table.product-table tr:hover td { background: var(--bg-elev); }
+  table.product-table .name-col { color: var(--ink); font-weight: 500; }
+  table.product-table .coords { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+  table.product-table .actions { display: flex; gap: 6px; }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-state .big { font-size: 42px; opacity: .3; margin-bottom: 12px; }
+  .empty-state.error { color: var(--danger); }
+  .empty-state.error .big { opacity: .75; }
+  .empty-state.loading .spinner {
+    width: 20px; height: 20px; margin: 0 auto 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--amber); border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+
+  /* ========== 推广面板 ========== */
+  .promo-grid {
+    display: grid; grid-template-columns: 2fr 1fr;
+    gap: 16px;
+  }
+  .balance-card {
+    background: linear-gradient(135deg, rgba(217,119,6,.12), rgba(217,119,6,.02));
+    border: 1px solid rgba(217,119,6,.3);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  .balance-amt {
+    font-size: 34px; font-weight: 700; color: var(--amber);
+    font-variant-numeric: tabular-nums;
+  }
+  .balance-currency { font-size: 14px; color: var(--amber-dim); margin-left: 4px; }
+
+  /* ========== 表单 ========== */
+  .form-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .form-field { display: flex; flex-direction: column; gap: 5px; }
+  .form-field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .form-field input, .form-field select, .form-field textarea {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px; outline: none;
+    transition: border-color 150ms ease-out;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--amber); }
+  .form-field textarea { resize: vertical; min-height: 70px; }
+  .form-full { grid-column: 1 / -1; }
+  .form-footer { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+
+  /* ========== Modal ========== */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; backdrop-filter: blur(2px);
+  }
+  .modal {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px;
+    width: min(540px, calc(100vw - 32px));
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .modal h3 { margin-bottom: 18px; color: var(--ink); font-size: 16px; }
+
+  /* ========== Toast ========== */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 10px 20px; border-radius: var(--radius);
+    background: var(--bg-elev); border: 1px solid var(--border);
+    font-size: 13px; z-index: 200; opacity: 0;
+    transition: opacity 250ms ease-out, transform 250ms ease-out;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+  .toast.success { border-color: rgba(16,185,129,.5); color: var(--success); }
+  .toast.error { border-color: rgba(239,68,68,.5); color: var(--danger); }
+
+  /* ========== 滚动条 ========== */
+  .content::-webkit-scrollbar, .table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+  .content::-webkit-scrollbar-track, .table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .content::-webkit-scrollbar-thumb:hover, .table-wrap::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ========== 响应式 ========== */
+  @media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .promo-grid { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 角色守卫 loading 态 -->
+<div id="boot" class="boot-screen"><span class="boot-spinner"></span>加载中…</div>
+
+<div id="app" class="app" style="display:none;">
+  <!-- 侧栏 -->
+  <aside class="sidebar">
+    <div class="logo">行</div>
+    <div class="nav-item active" data-page="overview">
+      <span class="icon">◈</span><span class="label">概览</span>
+    </div>
+    <div class="nav-item" data-page="products">
+      <span class="icon">▦</span><span class="label">产品</span>
+    </div>
+    <div class="nav-item" data-page="stats">
+      <span class="icon">▤</span><span class="label">数据</span>
+    </div>
+    <div class="nav-item" data-page="promotion">
+      <span class="icon">★</span><span class="label">推广</span>
+    </div>
+    <div class="nav-item" data-page="account">
+      <span class="icon">⚙</span><span class="label">资料</span>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">
+        <span class="ent-name" id="ent-name">—</span>
+        <span class="sep">|</span>
+        <span class="page-title" id="page-title">概览</span>
+      </div>
+      <div class="right">
+        <a class="goto-main" href="/">← 返回前台</a>
+        <span class="user" id="user-welcome"></span>
+        <button class="logout" id="logout-btn">退出</button>
+      </div>
+    </header>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ 常量 & 工具 ============ */
+const API_BASE = window.location.origin;
+const TOKEN_KEY = 'trip_ledger_token';
+const USER_KEY  = 'trip_ledger_user';
+
+const PAGE_TITLES = {
+  overview: '概览',
+  products: '产品管理',
+  stats:    '数据看板',
+  promotion:'推广设置',
+  account:  '企业资料',
+};
+
+function authHeaders() {
+  const t = localStorage.getItem(TOKEN_KEY);
+  return t ? { 'Authorization': `Bearer ${t}` } : {};
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));
+}
+
+function fmtNum(n) {
+  if (n == null || isNaN(n)) return '0';
+  return Number(n).toLocaleString('zh-CN');
+}
+
+function fmtMoney(n) {
+  if (n == null) return '0.00';
+  return Number(n).toFixed(2);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...opts,
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    window.location.href = '/';
+    throw new Error('未授权');
+  }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.detail || j.message || '请求失败');
+  if (j.success === false) throw new Error(j.message || '操作失败');
+  return j;
+}
+
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+/* ============ 状态 ============ */
+const state = {
+  page: 'overview',
+  enterprise: null,
+  user: null,
+  products: [],
+  promotions: [],
+  statsOverview: null,
+  statsTrend: null,
+  statsProducts: [],
+};
+
+/* ============ 路由 & 渲染 ============ */
+function switchPage(page) {
+  state.page = page;
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.classList.toggle('active', n.dataset.page === page);
+  });
+  document.getElementById('page-title').textContent = PAGE_TITLES[page];
+  const map = {
+    overview: renderOverview,
+    products: renderProducts,
+    stats:    renderStats,
+    promotion:renderPromotion,
+    account:  renderAccount,
+  };
+  map[page]();
+}
+
+document.querySelectorAll('.nav-item').forEach(n => {
+  n.addEventListener('click', () => switchPage(n.dataset.page));
+});
+
+/* ============ 1. 概览 ============ */
+async function renderOverview() {
+  const c = document.getElementById('content');
+  c.innerHTML = '<div class="card"><div class="empty-state loading"><div class="spinner"></div>加载中…</div></div>';
+  try {
+    const [ov, trend] = await Promise.all([
+      api('/api/v1/me/stats/overview'),
+      api('/api/v1/me/stats/trend'),
+    ]);
+    state.statsOverview = ov.data;
+    state.statsTrend = trend.data;
+  } catch (e) {
+    c.innerHTML = `<div class="card"><div class="empty-state error"><div class="big">!</div>${escapeHtml(e.message)}</div></div>`;
+    return;
+  }
+  const d = state.statsOverview;
+  const t = state.statsTrend || [];
+
+  const recommendPoints = t.map((p, i) => `${i * 60 + 20},${160 - (p.recommend || 0) * 18}`).join(' ');
+  const clickPoints     = t.map((p, i) => `${i * 60 + 20},${160 - (p.click || 0) * 18}`).join(' ');
+
+  c.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi amber">
+        <div class="kpi-label">今日推荐</div>
+        <div class="kpi-value">${fmtNum(d.today.recommend)}</div>
+        <div class="kpi-sub">累计 ${fmtNum(d.total.recommend)} 次</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">今日点击</div>
+        <div class="kpi-value">${fmtNum(d.today.click)}</div>
+        <div class="kpi-sub">累计 ${fmtNum(d.total.click)} 次</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">活跃产品</div>
+        <div class="kpi-value">${fmtNum(d.products.active)}<span style="color:var(--muted);font-size:14px;">/${fmtNum(d.products.total)}</span></div>
+        <div class="kpi-sub">上架中</div>
+      </div>
+      <div class="kpi success">
+        <div class="kpi-label">推广余额</div>
+        <div class="kpi-value">${fmtMoney(d.balance)}<span style="color:var(--muted);font-size:13px;"> 元</span></div>
+        <div class="kpi-sub">可用于推荐竞价</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">近 7 天趋势</div>
+        <div style="font-size:12px;color:var(--muted);">推荐量 / 点击量</div>
+      </div>
+      <div class="trend-wrap">
+        <div class="trend-chart">
+          <svg viewBox="0 0 440 180" preserveAspectRatio="none">
+            <!-- grid -->
+            <line x1="0" y1="40"  x2="440" y2="40"  stroke="#443c36" stroke-width="0.5" stroke-dasharray="3"/>
+            <line x1="0" y1="90"  x2="440" y2="90"  stroke="#443c36" stroke-width="0.5" stroke-dasharray="3"/>
+            <line x1="0" y1="140" x2="440" y2="140" stroke="#443c36" stroke-width="0.5" stroke-dasharray="3"/>
+            <!-- area recommend -->
+            <polygon points="20,160 ${recommendPoints} ${t.length * 60 - 40},160" fill="rgba(217,119,6,0.12)"/>
+            <polyline points="${recommendPoints}" fill="none" stroke="#d97706" stroke-width="2" stroke-linejoin="round"/>
+            <!-- area click -->
+            <polygon points="20,160 ${clickPoints} ${t.length * 60 - 40},160" fill="rgba(168,162,158,0.08)"/>
+            <polyline points="${clickPoints}" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linejoin="round" stroke-dasharray="4 3"/>
+            <!-- day labels -->
+            ${t.map((p, i) => `<text x="${i * 60 + 20}" y="175" text-anchor="middle" fill="#a8a29e" font-size="11">${escapeHtml(p.day)}</text>`).join('')}
+          </svg>
+        </div>
+        <div class="trend-legend">
+          <div class="lg"><span class="dot" style="background:#d97706"></span>推荐量<span class="val">${fmtNum(t.reduce((a,b)=>a+b.recommend,0))}</span></div>
+          <div class="lg"><span class="dot" style="background:#a8a29e"></span>点击量<span class="val">${fmtNum(t.reduce((a,b)=>a+b.click,0))}</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ============ 2. 产品管理 ============ */
+async function renderProducts() {
+  const c = document.getElementById('content');
+  c.innerHTML = '<div class="card"><div class="empty-state loading"><div class="spinner"></div>加载中…</div></div>';
+  try {
+    const j = await api('/api/v1/me/products');
+    state.products = j.items;
+  } catch (e) {
+    c.innerHTML = `<div class="card"><div class="empty-state error"><div class="big">!</div>${escapeHtml(e.message)}</div></div>`;
+    return;
+  }
+  renderProductsList(state.products);
+}
+
+function renderProductsList(items) {
+  const c = document.getElementById('content');
+  const rows = items.map(p => {
+    const tags = (p.tags || []).slice(0, 3).map(t => `<span class="badge badge-bid" style="margin-right:3px;">${escapeHtml(t)}</span>`).join('');
+    return `<tr>
+      <td class="name-col">${escapeHtml(p.name)}</td>
+      <td><span class="badge ${p.status ? 'badge-on' : 'badge-off'}">${p.status ? '上架' : '下架'}</span></td>
+      <td>${escapeHtml(p.category || '-')}</td>
+      <td class="coords">${p.lng != null ? Number(p.lng).toFixed(4) : '-'} / ${p.lat != null ? Number(p.lat).toFixed(4) : '-'}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(p.address)}">${escapeHtml(p.address || '-')}</td>
+      <td>${tags || '-'}</td>
+      <td>${p.rating != null ? '★ ' + Number(p.rating).toFixed(1) : '-'}</td>
+      <td class="actions">
+        <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${p.id}">编辑</button>
+        <button class="btn btn-sm ${p.status ? 'btn-danger' : 'btn-primary'}" data-act="toggle" data-id="${p.id}">${p.status ? '下架' : '上架'}</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">我的产品 <span style="color:var(--muted);font-weight:400;font-size:12px;">(${items.length})</span></div>
+        <button class="btn btn-primary" id="add-product-btn">+ 新增产品</button>
+      </div>
+      <div class="toolbar">
+        <input placeholder="🔍 搜索产品名/地址" id="product-search" />
+        <select id="product-status">
+          <option value="">全部状态</option>
+          <option value="1">仅上架</option>
+          <option value="0">仅下架</option>
+        </select>
+        <select id="product-cat">
+          <option value="">全部分类</option>
+        </select>
+      </div>
+      ${items.length ? `
+      <div class="table-wrap">
+        <table class="product-table">
+          <thead><tr>
+            <th>名称</th><th>状态</th><th>分类</th><th>坐标 (GCJ-02)</th><th>地址</th><th>标签</th><th>评分</th><th style="width:140px;">操作</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ` : `<div class="empty-state"><div class="big">▦</div>还没有产品，点右上角新增</div>`}
+    </div>
+  `;
+
+  // 分类选项
+  const cats = [...new Set(items.map(i => i.category).filter(Boolean))];
+  const catSel = document.getElementById('product-cat');
+  cats.forEach(c => {
+    const o = document.createElement('option'); o.value = c; o.textContent = c; catSel.appendChild(o);
+  });
+
+  // 事件
+  document.getElementById('add-product-btn').onclick = () => openProductForm();
+  document.getElementById('product-search').oninput = filterProducts;
+  document.getElementById('product-status').onchange = filterProducts;
+  document.getElementById('product-cat').onchange = filterProducts;
+  c.querySelectorAll('[data-act]').forEach(btn => {
+    btn.onclick = () => {
+      const id = Number(btn.dataset.id);
+      if (btn.dataset.act === 'edit') openProductForm(state.products.find(p => p.id === id));
+      if (btn.dataset.act === 'toggle') toggleProduct(id);
+    };
+  });
+}
+
+function filterProducts() {
+  const q = document.getElementById('product-search').value.trim().toLowerCase();
+  const st = document.getElementById('product-status').value;
+  const cat = document.getElementById('product-cat').value;
+  let items = state.products;
+  if (q) items = items.filter(p =>
+    (p.name || '').toLowerCase().includes(q) ||
+    (p.address || '').toLowerCase().includes(q));
+  if (st !== '') items = items.filter(p => String(p.status) === st);
+  if (cat) items = items.filter(p => p.category === cat);
+  renderProductsList(items);
+}
+
+async function toggleProduct(id) {
+  try {
+    const j = await api(`/api/v1/me/products/${id}/toggle`, { method: 'POST' });
+    const p = state.products.find(x => x.id === id);
+    if (p) p.status = j.product.status;
+    toast(j.product.status ? '已上架' : '已下架');
+    renderProductsList(state.products);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ============ 产品表单 Modal ============ */
+function openProductForm(product) {
+  const isEdit = !!product;
+  const p = product || {};
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.innerHTML = `
+    <div class="modal">
+      <h3>${isEdit ? '编辑产品' : '新增产品'}</h3>
+      <div class="form-grid">
+        <div class="form-field form-full">
+          <label>产品名称 *</label>
+          <input id="pf-name" value="${escapeHtml(p.name || '')}" placeholder="如：京城烤鸭店"/>
+        </div>
+        <div class="form-field">
+          <label>经度 (lng)</label>
+          <input id="pf-lng" value="${p.lng ?? ''}" placeholder="116.402 (GCJ-02)"/>
+        </div>
+        <div class="form-field">
+          <label>纬度 (lat)</label>
+          <input id="pf-lat" value="${p.lat ?? ''}" placeholder="39.914 (GCJ-02)"/>
+        </div>
+        <div class="form-field form-full">
+          <label>地址</label>
+          <input id="pf-address" value="${escapeHtml(p.address || '')}" placeholder="北京市东城区..."/>
+        </div>
+        <div class="form-field">
+          <label>分类</label>
+          <input id="pf-category" value="${escapeHtml(p.category || '')}" placeholder="餐饮服务 / 景点 / 购物"/>
+        </div>
+        <div class="form-field">
+          <label>评分</label>
+          <input id="pf-rating" type="number" step="0.1" min="0" max="5" value="${p.rating ?? ''}" placeholder="4.5"/>
+        </div>
+        <div class="form-field form-full">
+          <label>标签 (逗号分隔)</label>
+          <input id="pf-tags" value="${escapeHtml((p.tags || []).join(', '))}" placeholder="烤鸭, 北京, 老字号"/>
+        </div>
+        <div class="form-field form-full">
+          <label>描述</label>
+          <textarea id="pf-desc" placeholder="可选的详细描述">${escapeHtml(p.description || '')}</textarea>
+        </div>
+      </div>
+      <div class="form-footer">
+        <button class="btn btn-ghost" id="pf-cancel">取消</button>
+        <button class="btn btn-primary" id="pf-save">保存</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(mask);
+  mask.addEventListener('click', e => { if (e.target === mask) mask.remove(); });
+  document.getElementById('pf-cancel').onclick = () => mask.remove();
+  document.getElementById('pf-save').onclick = async () => {
+    const name = document.getElementById('pf-name').value.trim();
+    if (!name) return toast('请填写产品名称', 'error');
+    const body = { name };
+    const lng = document.getElementById('pf-lng').value.trim();
+    const lat = document.getElementById('pf-lat').value.trim();
+    if (lng && lat) { body.lng = lng; body.lat = lat; }
+    const address = document.getElementById('pf-address').value.trim();
+    if (address) body.address = address;
+    const category = document.getElementById('pf-category').value.trim();
+    if (category) body.category = category;
+    const rating = document.getElementById('pf-rating').value.trim();
+    if (rating) body.rating = parseFloat(rating);
+    const tagsStr = document.getElementById('pf-tags').value.trim();
+    if (tagsStr) body.tags = tagsStr.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+    const desc = document.getElementById('pf-desc').value.trim();
+    if (desc) body.description = desc;
+    try {
+      if (isEdit) {
+        await api(`/api/v1/me/products/${p.id}`, { method: 'PUT', body: JSON.stringify(body) });
+        toast('已保存');
+      } else {
+        await api('/api/v1/me/products', { method: 'POST', body: JSON.stringify(body) });
+        toast('已新增');
+      }
+      mask.remove();
+      await renderProducts();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+
+/* ============ 3. 数据看板 ============ */
+async function renderStats() {
+  const c = document.getElementById('content');
+  c.innerHTML = '<div class="card"><div class="empty-state loading"><div class="spinner"></div>加载中…</div></div>';
+  try {
+    const j = await api('/api/v1/me/stats/products');
+    state.statsProducts = j.items;
+  } catch (e) {
+    c.innerHTML = `<div class="card"><div class="empty-state error"><div class="big">!</div>${escapeHtml(e.message)}</div></div>`;
+    return;
+  }
+  const items = state.statsProducts;
+  const rows = items.map(p => {
+    const ctr = p.recommend_count ? ((p.click_count / p.recommend_count) * 100).toFixed(1) + '%' : '-';
+    return `<tr>
+      <td class="name-col">${escapeHtml(p.name)}</td>
+      <td>${fmtNum(p.recommend_count)}</td>
+      <td>${fmtNum(p.today_recommend)}</td>
+      <td>${fmtNum(p.click_count)}</td>
+      <td>${fmtNum(p.today_click)}</td>
+      <td>${ctr}</td>
+      <td>${fmtNum(p.favorite_count)}</td>
+    </tr>`;
+  }).join('');
+
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">产品表现排行</div>
+        <div style="font-size:12px;color:var(--muted);">按累计推荐量排序</div>
+      </div>
+      ${items.length ? `
+      <div class="table-wrap">
+        <table class="product-table">
+          <thead><tr>
+            <th>产品</th><th>累计推荐</th><th>今日推荐</th>
+            <th>累计点击</th><th>今日点击</th><th>点击率</th><th>收藏</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ` : `<div class="empty-state"><div class="big">▤</div>暂无数据，发布产品后会在这里看到统计</div>`}
+    </div>
+  `;
+}
+
+/* ============ 4. 推广设置 ============ */
+async function renderPromotion() {
+  const c = document.getElementById('content');
+  c.innerHTML = '<div class="card"><div class="empty-state loading"><div class="spinner"></div>加载中…</div></div>';
+  try {
+    const j = await api('/api/v1/me/promotions');
+    state.promotions = j.items;
+  } catch (e) {
+    c.innerHTML = `<div class="card"><div class="empty-state error"><div class="big">!</div>${escapeHtml(e.message)}</div></div>`;
+    return;
+  }
+
+  const totalBalance = state.promotions.reduce((a, p) => a + (p.balance || 0), 0);
+
+  const rows = state.promotions.map(p => `
+    <tr>
+      <td>${p.id}</td>
+      <td><span class="badge ${p.status ? 'badge-on' : 'badge-off'}">${p.status ? '投放中' : '已暂停'}</span></td>
+      <td>${escapeHtml(p.product_name || '全店推广')}</td>
+      <td class="coords">¥${p.bid_per_1k} / 千次</td>
+      <td class="coords">¥${fmtMoney(p.balance)}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" data-topup="${p.id}">充值</button>
+        <button class="btn btn-ghost btn-sm" data-toggle-promo="${p.id}">${p.status ? '暂停' : '开启'}</button>
+      </td>
+    </tr>
+  `).join('');
+
+  c.innerHTML = `
+    <div class="promo-grid">
+      <div class="balance-card">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">推广总余额</div>
+        <div><span class="balance-amt">${fmtMoney(totalBalance)}</span><span class="balance-currency">元</span></div>
+        <div style="color:var(--muted);font-size:12px;margin-top:14px;line-height:1.7;">
+          · 每次推荐展示后，按 ¥bid_per_1k / 1000 扣费<br/>
+          · 余额不足时自动停止投放<br/>
+          · 规则分始终优先，推广分权重 ≤ 10%
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">快速充值</div>
+        </div>
+        <div class="form-grid">
+          <div class="form-field form-full">
+            <label>金额 (元)</label>
+            <input id="topup-amount" type="number" min="1" value="500"/>
+          </div>
+          <div class="form-field form-full">
+            <button class="btn btn-primary" style="width:100%;justify-content:center;" id="quick-topup">立即充值全部推广</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">推广计划</div>
+        <button class="btn btn-primary" id="new-promo">+ 新建推广</button>
+      </div>
+      ${state.promotions.length ? `
+      <div class="table-wrap">
+        <table class="product-table">
+          <thead><tr>
+            <th>ID</th><th>状态</th><th>产品</th><th>出价</th><th>余额</th><th>操作</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ` : `<div class="empty-state"><div class="big">★</div>还没有推广计划</div>`}
+    </div>
+  `;
+
+  document.getElementById('quick-topup').onclick = quickTopup;
+  document.getElementById('new-promo').onclick = openPromoForm;
+  c.querySelectorAll('[data-topup]').forEach(btn => {
+    btn.onclick = () => topup(Number(btn.dataset.topup));
+  });
+  c.querySelectorAll('[data-toggle-promo]').forEach(btn => {
+    btn.onclick = () => togglePromo(Number(btn.dataset.togglePromo));
+  });
+}
+
+async function quickTopup() {
+  const amt = parseFloat(document.getElementById('topup-amount').value);
+  if (!amt || amt <= 0) return toast('请输入有效金额', 'error');
+  try {
+    await api('/api/v1/me/promotions/topup', {
+      method: 'POST', body: JSON.stringify({ amount: amt }),
+    });
+    toast(`已充值 ¥${fmtMoney(amt)}`);
+    await renderPromotion();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function topup(promoId) {
+  const amt = prompt('充值金额 (元)：', '100');
+  if (!amt) return;
+  const f = parseFloat(amt);
+  if (isNaN(f) || f <= 0) return toast('金额无效', 'error');
+  try {
+    await api('/api/v1/me/promotions/topup', {
+      method: 'POST', body: JSON.stringify({ promotion_id: promoId, amount: f }),
+    });
+    toast(`已充值 ¥${fmtMoney(f)}`);
+    await renderPromotion();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function togglePromo(promoId) {
+  const p = state.promotions.find(x => x.id === promoId);
+  if (!p) return;
+  try {
+    await api(`/api/v1/me/promotions/${promoId}`, {
+      method: 'PUT', body: JSON.stringify({ status: p.status ? 0 : 1 }),
+    });
+    toast(p.status ? '已暂停' : '已开启');
+    await renderPromotion();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openPromoForm() {
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.innerHTML = `
+    <div class="modal">
+      <h3>新建推广计划</h3>
+      <div class="form-grid">
+        <div class="form-field">
+          <label>推广产品 (可选)</label>
+          <select id="pr-product">
+            <option value="">全店推广</option>
+            ${state.products.filter(p=>p.status).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>出价 (元 / 千次)</label>
+          <input id="pr-bid" type="number" min="1" value="50"/>
+        </div>
+        <div class="form-field">
+          <label>每日预算 (元, 可选)</label>
+          <input id="pr-budget" type="number" min="0" value="0"/>
+        </div>
+        <div class="form-field">
+          <label>初始余额 (元)</label>
+          <input id="pr-balance" type="number" min="0" value="200"/>
+        </div>
+        <div class="form-field form-full">
+          <label>立即开启</label>
+          <select id="pr-status">
+            <option value="1">是</option><option value="0">否</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-footer">
+        <button class="btn btn-ghost" id="pr-cancel">取消</button>
+        <button class="btn btn-primary" id="pr-save">创建</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(mask);
+  mask.addEventListener('click', e => { if (e.target === mask) mask.remove(); });
+  document.getElementById('pr-cancel').onclick = () => mask.remove();
+  document.getElementById('pr-save').onclick = async () => {
+    const body = {
+      product_id: document.getElementById('pr-product').value || null,
+      bid_per_1k: parseFloat(document.getElementById('pr-bid').value),
+      budget_daily: parseFloat(document.getElementById('pr-budget').value) || 0,
+      balance: parseFloat(document.getElementById('pr-balance').value) || 0,
+      status: parseInt(document.getElementById('pr-status').value, 10),
+    };
+    try {
+      await api('/api/v1/me/promotions', { method: 'POST', body: JSON.stringify(body) });
+      mask.remove();
+      toast('推广计划已创建');
+      await renderPromotion();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+
+/* ============ 5. 企业资料 ============ */
+async function renderAccount() {
+  const c = document.getElementById('content');
+  c.innerHTML = '<div class="card"><div class="empty-state loading"><div class="spinner"></div>加载中…</div></div>';
+  let ent;
+  try {
+    const j = await api('/api/v1/me/enterprise');
+    ent = j.enterprise;
+    state.enterprise = ent;
+  } catch (e) {
+    c.innerHTML = `<div class="card"><div class="empty-state error"><div class="big">!</div>${escapeHtml(e.message)}</div></div>`;
+    return;
+  }
+  c.innerHTML = `
+    <div class="card" style="max-width:540px;">
+      <div class="card-header"><div class="card-title">企业资料</div>
+        <span class="badge ${ent.verified ? 'badge-on' : 'badge-off'}">${ent.verified ? '已认证' : '待认证'}</span>
+      </div>
+      <div class="form-grid">
+        <div class="form-field form-full">
+          <label>企业名称</label>
+          <input id="ac-name" value="${escapeHtml(ent.name || '')}"/>
+        </div>
+        <div class="form-field form-full">
+          <label>地址</label>
+          <input id="ac-address" value="${escapeHtml(ent.address || '')}"/>
+        </div>
+        <div class="form-field">
+          <label>联系人</label>
+          <input id="ac-contact" value="${escapeHtml(ent.contact_name || '')}"/>
+        </div>
+        <div class="form-field">
+          <label>联系电话</label>
+          <input id="ac-phone" value="${escapeHtml(ent.contact_phone || '')}"/>
+        </div>
+        <div class="form-field form-full">
+          <label>营业执照号</label>
+          <input id="ac-license" value="${escapeHtml(ent.license_no || '')}"/>
+        </div>
+      </div>
+      <div class="form-footer" style="margin-top:18px;">
+        <button class="btn btn-primary" id="ac-save">保存修改</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('ac-save').onclick = async () => {
+    const body = {
+      name: document.getElementById('ac-name').value.trim(),
+      address: document.getElementById('ac-address').value.trim(),
+      contact_name: document.getElementById('ac-contact').value.trim(),
+      contact_phone: document.getElementById('ac-phone').value.trim(),
+      license_no: document.getElementById('ac-license').value.trim(),
+    };
+    try {
+      const j = await api('/api/v1/me/enterprise', { method: 'PUT', body: JSON.stringify(body) });
+      state.enterprise = j.enterprise;
+      document.getElementById('ent-name').textContent = j.enterprise.name;
+      toast('已保存');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+
+/* ============ 启动 ============ */
+(async function boot() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const savedUser = localStorage.getItem(USER_KEY);
+  let user = null;
+  if (savedUser) { try { user = JSON.parse(savedUser); } catch (_) {} }
+
+  // 校验 token
+  try {
+    if (token) {
+      const r = await fetch(API_BASE + '/api/v1/auth/me', { headers: authHeaders() });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.success) {
+          user = j.user;
+          localStorage.setItem(USER_KEY, JSON.stringify(user));
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 无 token 或非 merchant → 跳前台
+  if (!user || user.role !== 'merchant') {
+    window.location.href = '/';
+    return;
+  }
+
+  state.user = user;
+  document.getElementById('boot').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+  document.getElementById('user-welcome').textContent = user.username;
+  document.getElementById('ent-name').textContent = '加载中...';
+
+  // 拉取企业名
+  try {
+    const j = await api('/api/v1/me/enterprise');
+    state.enterprise = j.enterprise;
+    document.getElementById('ent-name').textContent = j.enterprise.name;
+  } catch (_) { document.getElementById('ent-name').textContent = '我的企业'; }
+
+  // 退出
+  document.getElementById('logout-btn').onclick = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    window.location.href = '/';
+  };
+
+  switchPage('overview');
+})();
+</script>
+</body>
+</html>
