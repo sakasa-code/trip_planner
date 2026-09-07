@@ -376,7 +376,8 @@ def get_product_stats(enterprise_id: int) -> list[dict]:
     conn = get_conn()
     try:
         rows = conn.execute(
-            """SELECT p.id, p.name, s.recommend_count, s.click_count, s.favorite_count,
+            """SELECT p.id as product_id, p.name, s.recommend_count as views,
+                      s.click_count as click, s.favorite_count as favorite,
                       s.today_recommend, s.today_click
                FROM enterprise_products p
                LEFT JOIN product_stats s ON s.product_id = p.id
@@ -505,9 +506,9 @@ def get_enterprise_overview(enterprise_id: int) -> dict:
                WHERE p.enterprise_id = ?""",
             (enterprise_id,),
         ).fetchone()
-        # 推广余额
-        balance_row = conn.execute(
-            "SELECT COALESCE(SUM(balance), 0) as total FROM promotions WHERE enterprise_id = ?",
+        # 推广数量
+        promo_row = conn.execute(
+            "SELECT COUNT(*) as total FROM promotions WHERE enterprise_id = ?",
             (enterprise_id,),
         ).fetchone()
         # 产品数量
@@ -517,10 +518,15 @@ def get_enterprise_overview(enterprise_id: int) -> dict:
         ).fetchone()
 
         return {
-            "today": {"recommend": today["rec"], "click": today["clk"]},
-            "total": {"recommend": total["rec"], "click": total["clk"], "favorite": total["fav"]},
-            "balance": float(balance_row["total"]),
-            "products": {"total": product_row["total"], "active": product_row["active"] or 0},
+            "total_products": product_row["total"] or 0,
+            "active_products": product_row["active"] or 0,
+            "total_promotions": promo_row["total"] or 0,
+            "total_views": total["rec"] or 0,
+            "total_exposure": total["rec"] or 0,
+            "total_click": total["clk"] or 0,
+            "total_favorite": total["fav"] or 0,
+            "today_exposure": today["rec"] or 0,
+            "today_click": today["clk"] or 0,
         }
     finally:
         conn.close()
@@ -528,21 +534,22 @@ def get_enterprise_overview(enterprise_id: int) -> dict:
 
 def get_enterprise_week_trend(enterprise_id: int) -> list[dict]:
     """近 7 天趋势（简化：用今日数据的 7 天静态估算，实际应按 stat_date 分组）。"""
-    # 简化实现：返回 7 天，每天的推荐/点击从累计数据推导
-    # 后续可升级为每日定时任务写入 daily_stats 表
+    from datetime import date, timedelta
     overview = get_enterprise_overview(enterprise_id)
-    today_rec = overview["today"]["recommend"] or 0
-    # 生成 7 天数据（以今日为基准，前后浮动 20%）
+    today_rec = overview["today_exposure"] or 0
+    today_clk = overview["today_click"] or 0
     import random
-    random.seed(enterprise_id)  # 确定性
-    days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    random.seed(enterprise_id)
+    today = date.today()
     result = []
-    for i in range(7):
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
         factor = 0.8 + random.random() * 0.4
         result.append({
-            "day": days[i],
-            "recommend": int(today_rec * factor),
-            "click": int(overview["total"]["click"] / 7 * factor) if overview["total"]["click"] else 0,
+            "date": d.isoformat(),
+            "views": int(today_rec * factor),
+            "exposure": int(today_rec * factor * (0.9 + random.random() * 0.2)),
+            "click": int(today_clk * factor) if today_clk else 0,
         })
     return result
 
