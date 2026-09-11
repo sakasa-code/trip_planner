@@ -1,3 +1,4 @@
+"""多智能体旅行规划系统"""
 import sys
 from pathlib import Path
 
@@ -29,47 +30,23 @@ from trip_planner.prompts import (
     PLANNER_AGENT_PROMPT,
 )
 from trip_planner.schemas import TripRequest, TripPlan
-
-
-def _user_message(content: str) -> dict:
-    """构造 create_agent 接受的输入消息（文档示例为 dict 格式，元组可能校验失败）。"""
-    return {"role": "user", "content": content}
-
+from trip_planner.agent_utils import (
+    _user_message,
+    _normalize_city,
+    CityMismatch,
+    CLARIFICATION_MARKERS,
+    RETRY_INSTRUCTION,
+    looks_like_clarification,
+    extract_text,
+    extract_outermost_json,
+    truncate,
+)
 
 # 每个 Agent 单次任务允许的最大工具调用次数（防止 LLM 循环重复调用同一高德 API）。
-# exit_behavior="continue"：超限的工具调用会被拦截并提示模型"不要再调用"，其余照常执行，
-# 模型基于已拿到的数据完成回答，功能不受影响。
-# - 天气：1 次即可拿到多日预报；放宽到 2 以防个别边界情况
-# - 景点/酒店：合并关键词后通常 1 次，最多 2 次
 TOOL_CALL_LIMITS = {
     "weather": ToolCallLimitMiddleware(run_limit=2, exit_behavior="continue"),
     "poi": ToolCallLimitMiddleware(run_limit=2, exit_behavior="continue"),
 }
-
-# 检测 Agent 反问/空输出（deepseek-reasoner 偶发不调用工具而是反问用户）
-CLARIFICATION_MARKERS = (
-    "请您", "请告诉我", "请提供", "请补充", "无法确定", "无法查询",
-    "请问", "缺少关键信息", "需要补充",
-)
-
-RETRY_INSTRUCTION = (
-    "注意：所有必要信息（城市、日期、偏好）已经在对话中完整提供，"
-    "绝对不要再询问用户或要求补充信息！请直接调用可用工具获取真实数据，然后输出最终结果。"
-)
-
-
-def _normalize_city(city: str) -> str:
-    """城市名归一：去首尾空白、去「市」后缀，用于比较模型输出与请求是否一致。"""
-    return (city or "").strip().rstrip("市")
-
-
-class _CityMismatch(Exception):
-    """规划模型输出的城市与用户请求不一致（幻觉城市）。"""
-
-    def __init__(self, output: str, requested: str):
-        self.output = output
-        self.requested = requested
-        super().__init__(f"模型输出城市 {output!r} 与请求城市 {requested!r} 不一致")
 
 
 class MultiAgentTripPlanner:
@@ -78,7 +55,6 @@ class MultiAgentTripPlanner:
     def __init__(self):
         self.llm = llm1
         self.amap_tool = None
-        # 规划步骤无工具，直接使用 LLM（deepseek-chat + JSON 模式），不走 agent 框架
         self.planner_llm = llm_planner
         self._initialized = False
         self._init_lock = asyncio.Lock()
@@ -123,8 +99,6 @@ class MultiAgentTripPlanner:
         """
         tools = await load_mcp_tools(session)
 
-        # 按用途拆分工具：天气类工具只给天气 Agent，其余 POI 搜索工具给景点/酒店 Agent，
-        # 避免天气 Agent 误调用景点搜索工具（或反之）。
         weather_tools = [t for t in tools if "weather" in t.name.lower()]
         poi_tools = [t for t in tools if "weather" not in t.name.lower()]
         if not weather_tools:
@@ -173,7 +147,6 @@ class MultiAgentTripPlanner:
             yield {"type": "step", "step": "init", "status": "done",
                    "message": f"正在为「{request.city}」规划 {request.travel_days} 天行程"}
 
-            # 每次请求建立独立 MCP 会话
             current_step = "attractions"
             yield {"type": "step", "step": "attractions", "status": "start", "message": "正在检索景点…"}
             async with self.amap_tool.session("amap-amap-sse") as session:
@@ -223,15 +196,13 @@ class MultiAgentTripPlanner:
             trip_plan = None
             for attempt in range(3):
                 planner_response = await self.planner_llm.ainvoke(planner_messages)
-                planner_text = self._extract_text(planner_response)
+                planner_text = extract_text(planner_response)
                 try:
                     trip_plan = self._parse_response(planner_text, request)
-                    # 关键防线：模型偶尔会「幻觉」出别的城市（日志实证：广州被输出成北京），
-                    # 此处校验输出城市与请求一致，不一致则追加强硬修正指令重试。
                     if _normalize_city(trip_plan.city) != _normalize_city(request.city):
-                        raise _CityMismatch(trip_plan.city, request.city)
+                        raise CityMismatch(trip_plan.city, request.city)
                     break
-                except _CityMismatch as e:
+                except CityMismatch as e:
                     if attempt == 2:
                         raise
                     planner_messages = planner_messages + [
@@ -288,24 +259,15 @@ class MultiAgentTripPlanner:
         防止 deepseek-reasoner 偶发"不调用工具、反问用户"导致该步骤无数据。
         """
         response = await agent.ainvoke(query)
-        text = self._extract_text(response)
-        if self._looks_like_clarification(text):
+        text = extract_text(response)
+        if looks_like_clarification(text):
             print(f"⚠ {step_name} Agent 输出疑似反问/空结果，追加指令重试一次...")
             retry_query = {
                 "messages": query["messages"] + [_user_message(RETRY_INSTRUCTION)]
             }
             response = await agent.ainvoke(retry_query)
-            text = self._extract_text(response)
+            text = extract_text(response)
         return text
-
-    @staticmethod
-    def _looks_like_clarification(text: str) -> bool:
-        """判断 Agent 输出是否为反问/空结果（没有实际数据）。
-        只检查开头 120 字，避免误伤正常输出中顺带出现的提示语。"""
-        if not text or not text.strip():
-            return True
-        head = text[:120]
-        return any(marker in head for marker in CLARIFICATION_MARKERS)
 
     def _build_attraction_query(self, request: TripRequest) -> dict:
         """构建景点搜索查询"""
@@ -318,14 +280,6 @@ class MultiAgentTripPlanner:
                 )
             ]
         }
-
-    @staticmethod
-    def _truncate(text: str, limit: int = 1500) -> str:
-        """截断传给规划 Agent 的中间结果，控制提示词体积以加快生成速度。"""
-        text = text or ""
-        if len(text) <= limit:
-            return text
-        return text[:limit] + f"\n…（内容较长，已截断，共 {len(text)} 字）"
 
     def _build_planner_query(self, request: TripRequest, attractions: str, weather: str, hotels: str = "") -> str:
         """构建行程规划查询"""
@@ -340,13 +294,13 @@ class MultiAgentTripPlanner:
 - 偏好: {', '.join(request.preferences) if request.preferences else '无'}
 
 **景点信息:**
-{self._truncate(attractions)}
+{truncate(attractions)}
 
 **天气信息:**
-{self._truncate(weather)}
+{truncate(weather)}
 
 **酒店信息:**
-{self._truncate(hotels)}
+{truncate(hotels)}
 
 **要求:**
 1. 每天安排2-3个景点
@@ -374,8 +328,6 @@ class MultiAgentTripPlanner:
         """
         json_str = ""
         try:
-            # 尝试从响应中提取JSON
-            # 查找JSON代码块
             if "```json" in response:
                 json_str = response.split("```json")[1].split("```")[0].strip()
             elif "```" in response:
@@ -385,15 +337,13 @@ class MultiAgentTripPlanner:
                 else:
                     json_str = parts[-1].strip()
             else:
-                json_str = self._extract_outermost_json(response)
+                json_str = extract_outermost_json(response)
 
-            # 解析JSON
             json_str = json_str.strip()
             print(f"提取到的JSON:\n{json_str[:500]}...")
 
             data = json.loads(json_str)
 
-            # 转换为TripPlan对象
             trip_plan = TripPlan(**data)
 
             return trip_plan
@@ -406,84 +356,6 @@ class MultiAgentTripPlanner:
             print(f"提取JSON失败: {e}")
             print(f"原始响应:\n{response[:1000]}")
             raise
-
-    @staticmethod
-    def _extract_outermost_json(response: str) -> str:
-        """
-        从响应中提取最外层完整 JSON 对象。
-        从第一个 { 开始按括号配对扫描，自动跳过字符串内的花括号；
-        若候选无法解析为合法 JSON，则继续尝试后续的 { 位置。
-        """
-        start = response.find("{")
-        while start != -1:
-            bracket_count = 0
-            in_string = False
-            escape = False
-            for i in range(start, len(response)):
-                ch = response[i]
-                if in_string:
-                    if escape:
-                        escape = False
-                    elif ch == "\\":
-                        escape = True
-                    elif ch == '"':
-                        in_string = False
-                else:
-                    if ch == '"':
-                        in_string = True
-                    elif ch == '{':
-                        bracket_count += 1
-                    elif ch == '}':
-                        bracket_count -= 1
-                        if bracket_count == 0:
-                            candidate = response[start:i + 1]
-                            try:
-                                json.loads(candidate)
-                                return candidate
-                            except json.JSONDecodeError:
-                                break  # 候选无效，尝试下一个 {
-            start = response.find("{", start + 1)
-        raise ValueError("未找到完整 JSON 对象")
-
-    def _extract_text(self, response) -> str:
-        """从 Agent 响应中提取可读的文本内容"""
-        if isinstance(response, str):
-            return response
-
-        def _content_to_text(content) -> str:
-            """把消息 content（字符串或 content block 列表）转为纯文本"""
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                parts = []
-                for c in content:
-                    if isinstance(c, dict):
-                        if c.get("type") == "text" and c.get("text"):
-                            parts.append(c["text"])
-                    elif hasattr(c, "type") and getattr(c, "type") == "text":
-                        text = getattr(c, "text", None)
-                        if text:
-                            parts.append(text)
-                return "".join(parts)
-            return str(content)
-
-        if isinstance(response, dict):
-            # create_agent 输出：{"messages": [...], ...}；部分版本可能有 "output" 键
-            if "messages" in response:
-                messages = response["messages"]
-                if messages:
-                    last_msg = messages[-1]
-                    if hasattr(last_msg, "content"):
-                        return _content_to_text(last_msg.content)
-            if "output" in response:
-                return _content_to_text(response["output"])
-            # 备用：直接 str 整个 dict（调试用）
-            return str(response)[:500]
-        if hasattr(response, "content"):
-            # 直接 LLM 调用返回的 AIMessage 等消息对象
-            return _content_to_text(response.content)
-        else:
-            return str(response)[:500]
 
 
 _multi_agent_planner = None
@@ -515,7 +387,7 @@ async def main():
     try:
         trip_plan = await planner.plan_trip(request)
         print("\n✅ 生成的旅行计划：")
-        print(trip_plan.model_dump_json(indent=2))  # 漂亮打印JSON
+        print(trip_plan.model_dump_json(indent=2))
     except Exception as e:
         print(f"规划失败: {e}")
 

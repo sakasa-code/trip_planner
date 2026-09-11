@@ -23,6 +23,8 @@ from trip_planner.schemas import TripRequest
 from trip_planner.trip_planner_agent import get_trip_planner_agent
 from trip_planner import models, auth, location, recommend
 from trip_planner.cache import CacheService
+from trip_planner.geo_utils import wgs84_to_gcj02
+from trip_planner.amap_client import fetch_poi_detail
 from env_utils import AMAP_API_KEY, REDIS_URL
 
 logging.basicConfig(
@@ -214,6 +216,10 @@ async def plan_trip(request: TripRequest):
 async def login(body: dict):
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
+    if not username or not password:
+        return JSONResponse({"success": False, "message": "用户名和密码不能为空"}, status_code=400)
+    if len(username) > 64:
+        return JSONResponse({"success": False, "message": "用户名过长"}, status_code=400)
     user = models.get_user_by_username(username)
     if not user or not auth.verify_password(password, user["password_hash"]):
         return JSONResponse({"success": False, "message": "用户名或密码错误"}, status_code=401)
@@ -251,7 +257,7 @@ async def location_regeo(
 ):
     """逆地理编码：浏览器坐标 → 可读的省/市/区县，用于定位反馈。"""
     # 坐标合法性由 Query 约束兜底；浏览器 WGS-84 需转 GCJ-02 再查高德
-    gcj_lat, gcj_lng = recommend.wgs84_to_gcj02(lat, lng)
+    gcj_lat, gcj_lng = wgs84_to_gcj02(lat, lng)
     info = await location.reverse_geocode(gcj_lat, gcj_lng)
     if info is None:
         return {"success": False, "message": "无法解析所在城市，建议手动选择城市"}
@@ -284,7 +290,7 @@ async def poi_detail_api(id: str = Query(..., min_length=1)):
     """单个 POI 详情（地图搜索景点后弹出的介绍窗口数据源）。
     代理高德 place/detail：返回图片/评分/人均/电话/营业时间/地址等，
     高德无文字简介字段，介绍界面以图片+关键信息呈现。无 Key 或查不到时返回空。"""
-    detail = await recommend._fetch_poi_detail(id)
+    detail = await fetch_poi_detail(id)
     return {"success": detail is not None, "detail": detail}
 
 
@@ -336,6 +342,8 @@ async def register(body: dict):
     role = body.get("role") or "personal"
     if len(username) < 2:
         return JSONResponse({"success": False, "message": "用户名至少 2 个字符"}, status_code=400)
+    if len(username) > 64:
+        return JSONResponse({"success": False, "message": "用户名不能超过 64 个字符"}, status_code=400)
     if len(password) < 6:
         return JSONResponse({"success": False, "message": "密码至少 6 位"}, status_code=400)
     if role not in ("personal", "merchant"):
@@ -346,11 +354,16 @@ async def register(body: dict):
         return JSONResponse({"success": False, "message": "用户名已存在"}, status_code=409)
     # merchant 角色自动创建企业资料
     if role == "merchant":
-        ent_name = body.get("enterprise_name") or username
+        ent_name = (body.get("enterprise_name") or username).strip()
+        if len(ent_name) > 128:
+            return JSONResponse({"success": False, "message": "企业名称过长"}, status_code=400)
+        contact_phone = (body.get("contact_phone") or "").strip()
+        if contact_phone and len(contact_phone) > 20:
+            return JSONResponse({"success": False, "message": "联系电话格式无效"}, status_code=400)
         _m.create_enterprise(user["id"], ent_name,
                              address=body.get("address"),
                              contact_name=body.get("contact_name"),
-                             contact_phone=body.get("contact_phone"),
+                             contact_phone=contact_phone,
                              license_no=body.get("license_no"))
     token = auth.create_token(user["id"], user["username"], user["role"])
     return {"success": True, "token": token, "user": user}

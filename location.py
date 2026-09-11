@@ -8,9 +8,6 @@ from trip_planner.recommend import REGEO_CACHE_TTL
 AMAP_IP_URL = "https://restapi.amap.com/v3/ip"
 AMAP_REGEO_URL = "https://restapi.amap.com/v3/geocode/regeo"
 
-# 逆地理编码缓存：键为坐标簇（~111m 网格），同一片区只查一次，配额友好
-_regeo_cache: dict[str, dict | None] = {}
-_REGEO_CACHE_MAX = 1000
 REGEO_KEY_PREFIX = "regeo:"
 
 
@@ -53,7 +50,7 @@ async def reverse_geocode(lat: float, lng: float) -> dict | None:
     返回 {"province", "city", "district", "adcode", "label"}；失败返回 None。
     label 为可直接展示的"省市区"串，直辖市自动去重（北京市朝阳区而非北京市北京市朝阳区）。
 
-    缓存层：Redis regeo:{lat_lng} → 进程内 _regeo_cache → 上游 API
+    缓存层：Redis regeo:{lat_lng} → 上游 API
     同区域（round(lat/lng, 3) ≈ 111m 网格）的重复请求直接命中。
     """
     key = f"{round(lat, 3)},{round(lng, 3)}"
@@ -63,8 +60,6 @@ async def reverse_geocode(lat: float, lng: float) -> dict | None:
     cached = await cache.get(f"{REGEO_KEY_PREFIX}{key}")
     if cached is not None:
         return cached
-    if key in _regeo_cache:
-        return _regeo_cache[key]
 
     result = None
     if AMAP_API_KEY:
@@ -101,7 +96,4 @@ async def reverse_geocode(lat: float, lng: float) -> dict | None:
     # 仅缓存成功结果：暂时性网络失败下次可重试
     if result is not None:
         await cache.set(f"{REGEO_KEY_PREFIX}{key}", result, REGEO_CACHE_TTL)
-        if len(_regeo_cache) >= _REGEO_CACHE_MAX:
-            _regeo_cache.clear()
-        _regeo_cache[key] = result
     return result
